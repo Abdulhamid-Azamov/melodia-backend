@@ -1,38 +1,48 @@
-import Music from "../schemas/music.schema.js";
 import { BaseController } from "./base.controller.js";
+import Music from "../schemas/music.schema.js";
+import { catchAsync } from "../middlewares/catch-async.js";
+import { ApiError } from "../utils/custom-error.js";
+import { successRes } from "../utils/success-response.js";
 
-class MusicContreoller extends BaseController {
+class MusicController extends BaseController {
+  constructor() {
+    super(Music, 'album');
+  }
 
-    constructor() {
-        super(Music)
+  getRandom = catchAsync(async (_req, res) => {
+    const [music] = await Music.aggregate([{ $sample: { size: 1 } }]);
+    if (!music) return res.status(404).json({ message: "Music not found" });
+
+    let populatedTrack = music;
+    if (music.album) {
+      populatedTrack = await Music.findById(music._id).populate('album', 'name');
     }
 
+    res.json(populatedTrack);
+  });
 
-    async search(req, res) {
-        
-        const { q, page = 1, limit = 10 } = req.params;
-        console.log(q);
-        
-        
-
-        const regex = new RegExp(`^${q}`, "i");
-        const skip = (page - 1) * limit
-
-        const musics = await this.model
-            .find({ title: regex })
-            .skip(skip)
-            .limit(1)
-            .select("title artist cover playCount")
-
-
-        res.json({
-            q,
-            page,
-            limit,
-            count: musics.length,
-            data: musics
-        })
+  create = catchAsync(async (req, res) => {
+    if (req.body === undefined) {
+      throw new ApiError('Author, url and title are required', 400)
     }
+
+    const { title, url, file_id, author, album } = req.body;
+
+    const exists = await Music.findOne({ file_id });
+    if (exists) {
+      throw new ApiError('This file was already added', 409);
+    }
+
+    const data = await this.model.create({
+      title,
+      url,
+      file_id,
+      author: author || null,
+      album: album || null
+    });
+
+    return successRes(res, data, 201);
+  });
 }
 
-export default new MusicContreoller(Music, "album");
+export default new MusicController();
